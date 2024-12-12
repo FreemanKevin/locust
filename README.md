@@ -1,5 +1,4 @@
 ## locust
-Locust压测接口demo
 
 ### API
 ```shell
