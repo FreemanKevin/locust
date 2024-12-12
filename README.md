@@ -1,5 +1,5 @@
 ## locust
-当前项目demo主要是写了一个基于Flask的Web应用程序，包含用户认证功能，以支持Locust进行压测负载。
+Locust压测接口demo
 
 ### API
 ```shell
