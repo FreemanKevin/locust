@@ -3,7 +3,7 @@ import time
 import platform
 import sys
 import importlib.util
-import subprocess
+from typing import Optional, Any
 
 app = Flask(__name__)
 
@@ -66,6 +66,43 @@ def welcome(username):
         return render_template('welcome.html', username=username)
     abort(403)
 
+# 仅在非Windows系统中定义
+if platform.system() != 'Windows':
+    try:
+        from gunicorn.app.base import BaseApplication  # type: ignore
+        
+        class GunicornApplication:
+            """Gunicorn应用包装器"""
+            def __init__(self, app: Any, options: Optional[dict] = None):
+                self.options = options or {}
+                self.application = app
+                
+            def run(self) -> None:
+                class StandaloneApplication(BaseApplication):  # type: ignore
+                    def __init__(self, app: Any, options: Optional[dict] = None):
+                        self.options = options or {}
+                        self.application = app
+                        super().__init__()
+
+                    def load_config(self) -> None:
+                        for key, value in self.options.items():
+                            self.cfg.set(key, value)
+
+                    def load(self) -> Any:
+                        return self.application
+
+                StandaloneApplication(self.application, self.options).run()
+    except ImportError:
+        pass
+
+def print_server_info():
+    """打印服务器信息"""
+    print('服务器地址: http://127.0.0.1:5000')
+    print('可用接口:')
+    print('- 登录页面: http://127.0.0.1:5000/login')
+    print('- Hello接口: http://127.0.0.1:5000/hello')
+    print('- Sleep接口: http://127.0.0.1:5000/sleep\n')
+
 if __name__ == '__main__':
     # 先检查依赖
     check_dependencies()
@@ -74,38 +111,18 @@ if __name__ == '__main__':
     if platform.system() == 'Windows':
         from waitress import serve
         print('使用Waitress服务器启动应用...')
-        print('服务器地址: http://127.0.0.1:5000')
-        print('可用接口:')
-        print('- 登录页面: http://127.0.0.1:5000/login')
-        print('- Hello接口: http://127.0.0.1:5000/hello')
-        print('- Sleep接口: http://127.0.0.1:5000/sleep\n')
+        print_server_info()
         serve(app, host='127.0.0.1', port=5000, threads=4)
     else:
-        from gunicorn.app.base import BaseApplication
         print('使用Gunicorn服务器启动应用...')
-        print('服务器地址: http://127.0.0.1:5000')
-        print('可用接口:')
-        print('- 登录页面: http://127.0.0.1:5000/login')
-        print('- Hello接口: http://127.0.0.1:5000/hello')
-        print('- Sleep接口: http://127.0.0.1:5000/sleep\n')
-
-        class StandaloneApplication(BaseApplication):
-            def __init__(self, app, options=None):
-                self.options = options or {}
-                self.application = app
-                super().__init__()
-
-            def load_config(self):
-                for key, value in self.options.items():
-                    self.cfg.set(key, value)
-
-            def load(self):
-                return self.application
-
+        print_server_info()
         options = {
             'bind': '127.0.0.1:5000',
             'workers': 4,
             'worker_class': 'sync'
         }
-        print('服务器地址: http://127.0.0.1:5000')
-        StandaloneApplication(app, options).run() 
+        try:
+            GunicornApplication(app, options).run()
+        except NameError:
+            print('错误: 无法加载Gunicorn，请确保已安装')
+            sys.exit(1) 
