@@ -1,0 +1,89 @@
+name: Snyk Security Scan and PR Creation
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # 每天 00:00 UTC 执行扫描任务
+  workflow_dispatch:
+
+jobs:
+  snyk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Detect project language
+        id: detect_language
+        run: |
+          if [ -f "package.json" ]; then
+            echo "Detected Node.js project"
+            echo "language=node" >> $GITHUB_ENV
+          elif [ -f "requirements.txt" ]; then
+            echo "Detected Python project"
+            echo "language=python" >> $GITHUB_ENV
+          elif [ -f "pom.xml" ]; then
+            echo "Detected Java (Maven) project"
+            echo "language=java-maven" >> $GITHUB_ENV
+          elif [ -f "build.gradle" ]; then
+            echo "Detected Java (Gradle) project"
+            echo "language=java-gradle" >> $GITHUB_ENV
+          elif [ -f "go.mod" ]; then
+            echo "Detected Go project"
+            echo "language=go" >> $GITHUB_ENV
+          else
+            echo "Unsupported project type"
+            exit 1
+          fi
+
+      - name: Set up Node.js (if Node.js project)
+        if: env.language == 'node'
+        uses: actions/setup-node@v2
+        with:
+          node-version: '16'
+
+      - name: Install dependencies (Node.js)
+        if: env.language == 'node'
+        run: npm install
+
+      - name: Install dependencies (Python)
+        if: env.language == 'python'
+        run: pip install -r requirements.txt
+
+      - name: Install dependencies (Java - Maven)
+        if: env.language == 'java-maven'
+        run: mvn install
+
+      - name: Install dependencies (Java - Gradle)
+        if: env.language == 'java-gradle'
+        run: ./gradlew build
+
+      - name: Install dependencies (Go)
+        if: env.language == 'go'
+        run: go mod tidy
+
+      - name: Snyk Security Scan
+        run: snyk test --all-projects --json > snyk_report.json
+
+      - name: Check for vulnerabilities and create PR
+        run: |
+          if grep -q '"vulnerabilities":' snyk_report.json; then
+            echo "漏洞发现，创建修复 PR"
+            
+            git checkout -b snyk-fix-branch
+            snyk fix --all-projects
+            
+            git add .
+            git commit -m "Fix vulnerabilities detected by Snyk"
+            git push --set-upstream origin snyk-fix-branch
+
+            pr_creation_status=$(gh pr create --title "Fix vulnerabilities" --body "Automatically generated PR to fix vulnerabilities" --base main --head snyk-fix-branch || echo "failed")
+            
+            if [[ "$pr_creation_status" == "failed" ]]; then
+              echo "PR 创建失败：可能是由于合并冲突。请手动解决冲突。"
+              exit 1
+            fi
+
+            echo "PR 已成功创建"
+          else
+            echo "没有发现漏洞"
+          fi
