@@ -1,4 +1,4 @@
-name: Snyk Security Scan and PR Creation
+name: Snyk Scan
 
 on:
   schedule:
@@ -48,7 +48,7 @@ jobs:
         run: snyk auth ${{ secrets.SNYK_TOKEN }}
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-
+          
       - name: Install Dependencies
         run: |
           if [ "${{ env.language }}" = "python" ]; then
