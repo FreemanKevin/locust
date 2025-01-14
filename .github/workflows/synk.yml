@@ -35,23 +35,19 @@ jobs:
             exit 1
           fi
 
-      - name: Install snyk
+      - name: Install snyk (latest)
         run: |
-          npm install -g snyk  # 安装 snyk
+          npm install -g snyk@latest  # 安装最新版本的 snyk
 
-      - name: Set up Node.js (if Node.js project)
-        if: env.language == 'node'
-        uses: actions/setup-node@v2
-        with:
-          node-version: '16'
+      - name: Install dependencies (Python)
+        if: env.language == 'python'
+        run: |
+          pip install -r requirements.txt
+          pip check  # 检查依赖冲突
 
       - name: Install dependencies (Node.js)
         if: env.language == 'node'
         run: npm install
-
-      - name: Install dependencies (Python)
-        if: env.language == 'python'
-        run: pip install -r requirements.txt
 
       - name: Install dependencies (Java - Maven)
         if: env.language == 'java-maven'
@@ -65,7 +61,12 @@ jobs:
         if: env.language == 'go'
         run: go mod tidy
 
-      - name: Snyk Security Scan
+      - name: Snyk Security Scan (Python)
+        if: env.language == 'python'
+        run: snyk test --file=requirements.txt --json > snyk_report.json || (cat snyk_report.json && exit 1)
+
+      - name: Snyk Security Scan (Node.js)
+        if: env.language == 'node'
         run: snyk test --all-projects --json > snyk_report.json
 
       - name: Check for vulnerabilities and create PR
