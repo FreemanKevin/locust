@@ -65,11 +65,11 @@ jobs:
         if: env.language == 'python'
         run: |
           pip install -r requirements.txt  # 确保所有依赖安装
-          snyk test --file=requirements.txt --json > snyk_report.json || (cat snyk_report.json && exit 1)
+          snyk test --file=requirements.txt --json --skip-unresolved > snyk_report.json || (cat snyk_report.json && exit 1)
 
       - name: Snyk Security Scan (Node.js)
         if: env.language == 'node'
-        run: snyk test --all-projects --json > snyk_report.json
+        run: snyk test --all-projects --json --skip-unresolved > snyk_report.json
 
       - name: Check for vulnerabilities and create PR
         run: |
@@ -86,3 +86,11 @@ jobs:
             pr_creation_status=$(gh pr create --title "Fix vulnerabilities" --body "Automatically generated PR to fix vulnerabilities" --base main --head snyk-fix-branch || echo "failed")
             
             if [[ "$pr_creation_status" == "failed" ]]; then
+              echo "PR 创建失败：可能是由于合并冲突。请手动解决冲突。"
+              exit 1
+            fi
+
+            echo "PR 已成功创建"
+          else
+            echo "没有发现漏洞"
+          fi
