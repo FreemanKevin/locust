@@ -1,99 +1,44 @@
-name: Snyk Security Scan and PR Creation
+name: Dependency Security Check
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # 每天 00:00 UTC 执行扫描任务
+    - cron: '0 0 * * *'  # 每天执行
   workflow_dispatch:
 
 jobs:
-  snyk:
+  security-check:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
+
+      - name: Setup Python
+        uses: actions/setup-python@v2
         with:
-          fetch-depth: 0  # 获取完整历史记录，便于创建分支
+          python-version: '3.x'
 
-      - name: Setup Git Config
+      - name: Install dependencies
         run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-
-      - name: Detect project language
-        id: detect_language
-        run: |
-          if [ -f "package.json" ]; then
-            echo "language=node" >> $GITHUB_ENV
-          elif [ -f "requirements.txt" ]; then
-            echo "language=python" >> $GITHUB_ENV
-          elif [ -f "pom.xml" ]; then
-            echo "language=java-maven" >> $GITHUB_ENV
-          elif [ -f "build.gradle" ]; then
-            echo "language=java-gradle" >> $GITHUB_ENV
-          elif [ -f "go.mod" ]; then
-            echo "language=go" >> $GITHUB_ENV
-          else
-            echo "language=unknown" >> $GITHUB_ENV
-          fi
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v2
-        with:
-          node-version: '16'
-
-      - name: Install Snyk CLI
-        run: npm install -g snyk
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
       - name: Run Snyk to check for vulnerabilities
-        uses: snyk/actions/node@master
+        uses: snyk/actions/python@master
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-          
-      - name: Install Dependencies
-        run: |
-          if [ "${{ env.language }}" = "python" ]; then
-            pip install -r requirements.txt
-          elif [ "${{ env.language }}" = "node" ]; then
-            npm install
-          elif [ "${{ env.language }}" = "java-maven" ]; then
-            mvn install -DskipTests
-          elif [ "${{ env.language }}" = "java-gradle" ]; then
-            ./gradlew build -x test
-          elif [ "${{ env.language }}" = "go" ]; then
-            go mod tidy
-          fi
-
-      - name: Run Snyk Scan
-        id: snyk
-        continue-on-error: true
-        run: |
-          if [ "${{ env.language }}" = "python" ]; then
-            snyk test --file=requirements.txt --json > snyk_report.json || true
-          else
-            snyk test --all-projects --json > snyk_report.json || true
-          fi
-
-      - name: Process Snyk Results
-        id: process
-        run: |
-          if [ -f snyk_report.json ] && grep -q '"vulnerabilities":' snyk_report.json; then
-            echo "has_vulnerabilities=true" >> $GITHUB_ENV
-          else
-            echo "has_vulnerabilities=false" >> $GITHUB_ENV
-          fi
+        with:
+          command: test
+          args: --severity-threshold=high
 
       - name: Create Fix Branch and PR
-        if: env.has_vulnerabilities == 'true'
+        if: failure()
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 生成唯一的分支名
-          BRANCH_NAME="snyk-fix-$(date +%Y%m%d-%H%M%S)"
-          
-          # 创建新分支
+          BRANCH_NAME="deps-fix-$(date +%Y%m%d-%H%M%S)"
           git checkout -b $BRANCH_NAME
           
-          # 尝试自动修复
+          # 尝试修复依赖
           snyk fix --all-projects || true
           
           # 检查是否有更改
@@ -104,29 +49,12 @@ jobs:
           
           # 提交更改
           git add .
-          git commit -m "fix: 自动修复 Snyk 发现的安全漏洞"
+          git commit -m "fix: 自动修复依赖安全漏洞"
+          git push origin $BRANCH_NAME
           
-          # 推送分支
-          if git push origin $BRANCH_NAME; then
-            # 创建PR
-            PR_URL=$(gh pr create \
-              --title "fix: 修复 Snyk 安全漏洞 $(date +%Y-%m-%d)" \
-              --body "此PR由 Snyk 自动创建，用于修复检测到的安全漏洞。
-
-              **检测到的漏洞：**
-              $(cat snyk_report.json | jq -r '.vulnerabilities[] | "- \(.title)"')" \
-              --base main \
-              --head $BRANCH_NAME)
-            
-            echo "Created PR: $PR_URL"
-            
-            # 尝试自动合并
-            gh pr merge $PR_URL --auto --merge
-          else
-            echo "::warning::Push failed, manual intervention required"
-          fi
-
-      - name: Notify on Failure
-        if: failure()
-        run: |
-          echo "::warning::Snyk scan or fix process failed. Please check the logs and handle manually."
+          # 创建PR
+          gh pr create \
+            --title "fix: 修复依赖安全漏洞 $(date +%Y-%m-%d)" \
+            --body "此PR由GitHub Actions自动创建，用于修复检测到的依赖安全漏洞。" \
+            --base main \
+            --head $BRANCH_NAME
