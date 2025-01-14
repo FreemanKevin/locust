@@ -35,6 +35,10 @@ jobs:
             exit 1
           fi
 
+      - name: Install snyk
+        run: |
+          npm install -g snyk  # 安装 snyk
+
       - name: Set up Node.js (if Node.js project)
         if: env.language == 'node'
         uses: actions/setup-node@v2
